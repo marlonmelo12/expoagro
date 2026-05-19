@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+pandas
+scikit-learn==1.8.0  # Use a mesma versão que você usou para treinar o modelo
+joblib
+psycopg2-binary
+sqlalchemy
+pydantic
+python-dotenv
