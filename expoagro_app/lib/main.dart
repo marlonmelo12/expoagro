@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'screens/simulador_screen.dart'; // Importando a tela da pasta screens
+import 'screens/main_navigation_screen.dart'; // Importando a tela de navegação principal
 
 void main() {
   runApp(const SimuladorViabilidadeApp());
@@ -11,7 +11,7 @@ class SimuladorViabilidadeApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Simulador de Viabilidade Reprodutiva',
+      title: 'AgroHub - Simulador & Gestão',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
@@ -21,7 +21,7 @@ class SimuladorViabilidadeApp extends StatelessWidget {
         ),
         scaffoldBackgroundColor: const Color(0xFFF5F5F5),
       ),
-      home: const SimuladorScreen(),
+      home: const MainNavigationScreen(),
     );
   }
 }

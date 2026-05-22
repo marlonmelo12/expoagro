@@ -1,506 +1,753 @@
 import 'package:flutter/material.dart';
-import '../services/api_service.dart'; // Importando nosso serviço
+import '../services/api_service.dart';
+import 'detalhes_screen.dart';
 
 class SimuladorScreen extends StatefulWidget {
-  const SimuladorScreen({super.key});
+  final int indiceGeneticoReprodutor;
+  final String especie;
+  final String nomeReprodutor;
+
+  const SimuladorScreen({
+    super.key,
+    required this.indiceGeneticoReprodutor,
+    required this.especie,
+    required this.nomeReprodutor,
+  });
 
   @override
   State<SimuladorScreen> createState() => _SimuladorScreenState();
 }
 
 class _SimuladorScreenState extends State<SimuladorScreen> {
-  final _formKey = GlobalKey<FormState>();
-  
-  String _especieSelecionada = 'Bovino';
-  final TextEditingController _idadeController = TextEditingController();
-  double _ecc = 3.0;
-  int _tentativasPrevias = 0;
-  final TextEditingController _indiceGeneticoController = TextEditingController();
   String _estacao = 'Chuva';
-  final TextEditingController _diasPosParto = TextEditingController();
-  
   bool _isLoading = false;
-  Map<String, dynamic>? _resultado;
+  List<dynamic> _candidatas = [];
+  String? _errorMessage;
 
   @override
-  void dispose() {
-    _idadeController.dispose();
-    _indiceGeneticoController.dispose();
-    _diasPosParto.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+    _buscarMelhoresMatrizes();
   }
 
-  // --- AQUI ACONTECE A INTEGRAÇÃO REAL COM A API ---
-  Future<void> _analisarViabilidade() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
-
+  Future<void> _buscarMelhoresMatrizes() async {
     setState(() {
       _isLoading = true;
-      _resultado = null;
+      _errorMessage = null;
     });
 
     try {
-      // 1. Monta os dados para o FastAPI
-      Map<String, dynamic> dadosInput = {
-        "especie": _especieSelecionada,
-        "idade_meses": int.parse(_idadeController.text),
-        "ecc": _ecc,
-        "tentativas_previas": _tentativasPrevias,
-        "indice_genetico_reprodutor": int.parse(_indiceGeneticoController.text),
+      final payload = {
+        "especie": widget.especie,
+        "indice_genetico_reprodutor": widget.indiceGeneticoReprodutor,
         "estacao": _estacao,
-        "dias_pos_parto": int.parse(_diasPosParto.text),
-        "fazenda": "Fazenda_Expoagro"
       };
 
-      // 2. Chama a IA
-      final response = await ApiService.preverSucesso(dadosInput);
-
-      // 3. Processa a resposta
-      String probString = response['predicao']['probabilidade_sucesso'].toString().replaceAll('%', '');
-      double probabilidadeFinal = double.parse(probString);
+      final response = await ApiService.obterMelhoresCandidatas(payload);
 
       setState(() {
+        _candidatas = response;
         _isLoading = false;
-        _resultado = {
-          'probabilidade': probabilidadeFinal,
-          'status': response['predicao']['classificacao'],
-          'cor': probabilidadeFinal >= 70 ? Colors.green : 
-                 probabilidadeFinal >= 50 ? Colors.orange : Colors.red,
-          'recomendacao': response['predicao']['recomendacao'],
-        };
       });
-
-      _mostrarResultado();
-
     } catch (e) {
-      setState(() => _isLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao conectar com a IA: $e'), backgroundColor: Colors.red),
-        );
-      }
+      setState(() {
+        _errorMessage = e.toString().replaceFirst('Exception: ', '');
+        _isLoading = false;
+      });
     }
   }
 
-  void _mostrarResultado() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+  Color _getViabilityColor(double probability) {
+    if (probability >= 70.0) return const Color(0xFF2E7D32); // Green
+    if (probability >= 50.0) return const Color(0xFFF57C00); // Orange
+    return const Color(0xFFD32F2F); // Red
+  }
+
+  Widget _buildBreederSummaryCard() {
+    return Card(
+      elevation: 4,
+      shadowColor: Colors.black12,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: LinearGradient(
+            colors: [
+              const Color(0xFF1B5E20),
+              const Color(0xFF2E7D32).withValues(alpha: 0.9),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
         ),
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        padding: const EdgeInsets.all(20),
+        child: Row(
           children: [
             Container(
-              width: 48,
-              height: 4,
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(2),
+                color: Colors.white.withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.biotech_rounded,
+                color: Colors.white,
+                size: 32,
               ),
             ),
-            const SizedBox(height: 24),
-            Icon(
-              _resultado!['probabilidade'] >= 70 
-                  ? Icons.check_circle_outline 
-                  : _resultado!['probabilidade'] >= 50
-                  ? Icons.warning_amber_outlined
-                  : Icons.cancel_outlined,
-              size: 64,
-              color: _resultado!['cor'],
-            ),
-            const SizedBox(height: 16),
-            Text(
-              _resultado!['status'],
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: _resultado!['cor'],
-              ),
-            ),
-            const SizedBox(height: 24),
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: _resultado!['cor'].withOpacity(0.1),
-                borderRadius: BorderRadius.circular(16),
-              ),
+            const SizedBox(width: 16),
+            Expanded(
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '${_resultado!['probabilidade'].toStringAsFixed(1)}%',
-                    style: TextStyle(
-                      fontSize: 56,
+                    widget.nomeReprodutor,
+                    style: const TextStyle(
+                      fontSize: 20,
                       fontWeight: FontWeight.bold,
-                      color: _resultado!['cor'],
+                      color: Colors.white,
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 4),
                   Text(
-                    'Probabilidade de Sucesso',
+                    '${widget.especie} • Índice Genético: ${widget.indiceGeneticoReprodutor}',
                     style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.grey[700],
+                      fontSize: 14,
+                      color: Colors.white.withValues(alpha: 0.85),
                       fontWeight: FontWeight.w500,
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 24),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.grey[100],
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.lightbulb_outline, color: Colors.amber[700], size: 28),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      _resultado!['recomendacao'],
-                      style: TextStyle(
-                        fontSize: 15,
-                        color: Colors.grey[800],
-                        height: 1.4,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: () => Navigator.pop(context),
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: const Text(
-                  'Fechar',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildSeasonSelector() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Estação do Cruzamento',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF333333),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: SegmentedButton<String>(
+              segments: const [
+                ButtonSegment<String>(
+                  value: 'Chuva',
+                  label: Text('Estação das Chuvas'),
+                  icon: Icon(Icons.water_drop_rounded),
+                ),
+                ButtonSegment<String>(
+                  value: 'Seca',
+                  label: Text('Estação Seca'),
+                  icon: Icon(Icons.wb_sunny_rounded),
+                ),
+              ],
+              selected: {_estacao},
+              onSelectionChanged: (Set<String> newSelection) {
+                setState(() {
+                  _estacao = newSelection.first;
+                });
+                _buscarMelhoresMatrizes();
+              },
+              style: SegmentedButton.styleFrom(
+                selectedBackgroundColor: const Color(0xFF2E7D32),
+                selectedForegroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRankBadge(int rank) {
+    Color badgeColor;
+    String rankText = '#$rank';
+
+    switch (rank) {
+      case 1:
+        badgeColor = const Color(0xFFFFC107); // Gold
+        break;
+      case 2:
+        badgeColor = const Color(0xFFB0BEC5); // Silver
+        break;
+      case 3:
+        badgeColor = const Color(0xFFFF8A65); // Bronze
+        break;
+      default:
+        badgeColor = const Color(0xFF78909C); // Slate
+    }
+
+    return Container(
+      width: 36,
+      height: 36,
+      decoration: BoxDecoration(
+        color: badgeColor,
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: badgeColor.withValues(alpha: 0.3),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        rankText,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+          fontSize: 14,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMetricPill(String label, String value, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey[300]!, width: 0.5),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: Colors.grey[600]),
+          const SizedBox(width: 4),
+          Text(
+            '$label: ',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey[700],
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey[900],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _realizarInseminacao(Map<String, dynamic> candidata) async {
+    final String cowName = candidata['nome'] ?? 'Matriz ID ${candidata['animal_id']}';
+    final int cowId = candidata['animal_id'];
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.vaccines_rounded, color: Color(0xFF2E7D32)),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text('Confirmar Inseminação'),
+            ),
+          ],
+        ),
+        content: Text.rich(
+          TextSpan(
+            children: [
+              const TextSpan(text: 'Deseja registrar a inseminação da matriz '),
+              TextSpan(
+                text: cowName,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const TextSpan(text: ' com o reprodutor '),
+              TextSpan(
+                text: widget.nomeReprodutor,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const TextSpan(text: '?'),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF2E7D32),
+            ),
+            child: const Text('Confirmar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    try {
+      final dados = {
+        "data_inseminacao": DateTime.now().toIso8601String().split('T')[0],
+        "ecc": (candidata['ecc'] as num).toDouble(),
+        "tentativas_previas": 0,
+        "indice_genetico_reprodutor": widget.indiceGeneticoReprodutor,
+        "estacao": _estacao,
+        "dias_pos_parto": 90,
+      };
+
+      await ApiService.registrarInseminacao(cowId, dados);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle_rounded, color: Colors.white),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text('Inseminação de $cowName registrada com sucesso!'),
+              ),
+            ],
+          ),
+          backgroundColor: const Color(0xFF2E7D32),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+
+      // Fetch single animal complete profile & redirect to details page
+      try {
+        final rebanho = await ApiService.getAnimais();
+        final animalCompleto = rebanho.firstWhere(
+          (a) => a['id'] == cowId,
+          orElse: () => null,
+        );
+
+        if (animalCompleto != null && mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => DetalhesScreen(animal: animalCompleto),
+            ),
+          );
+        }
+      } catch (e) {
+        // Fail silently
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erro ao registrar inseminação: $e'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    }
+  }
+
+  Widget _buildCowCard(Map<String, dynamic> candidata, int index) {
+    final double probability = (candidata['probabilidade_sucesso'] as num).toDouble();
+    final Color viabilityColor = _getViabilityColor(probability);
+    final String cowName = candidata['nome'] ?? 'Matriz ID ${candidata['animal_id']}';
+    final int cowId = candidata['animal_id'];
+    final double ecc = (candidata['ecc'] as num).toDouble();
+    final int idade = candidata['idade_meses'] as int;
+    final String status = candidata['status'] ?? 'Indefinido';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      elevation: 2,
+      shadowColor: Colors.black.withValues(alpha: 0.05),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                _buildRankBadge(index + 1),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        cowName,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF263238),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Registro: #$cowId',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: [
+                          _buildMetricPill('ECC', ecc.toStringAsFixed(1), Icons.fitness_center),
+                          _buildMetricPill('Idade', '$idade m', Icons.calendar_today_rounded),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        SizedBox(
+                          width: 56,
+                          height: 56,
+                          child: CircularProgressIndicator(
+                            value: probability / 100,
+                            strokeWidth: 5.5,
+                            backgroundColor: viabilityColor.withValues(alpha: 0.15),
+                            valueColor: AlwaysStoppedAnimation<Color>(viabilityColor),
+                          ),
+                        ),
+                        Text(
+                          '${probability.toStringAsFixed(0)}%',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: viabilityColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: viabilityColor.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: viabilityColor.withValues(alpha: 0.3), width: 0.8),
+                      ),
+                      child: Text(
+                        status,
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          color: viabilityColor,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Divider(color: Colors.grey[200], height: 1),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              height: 40,
+              child: OutlinedButton.icon(
+                onPressed: () => _realizarInseminacao(candidata),
+                icon: const Icon(Icons.vaccines_rounded, size: 18),
+                label: const Text(
+                  'Realizar Inseminação',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF2E7D32),
+                  side: const BorderSide(color: Color(0xFF2E7D32), width: 1.2),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSkeletonLoader() {
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: 5,
+      itemBuilder: (context, index) {
+        return Card(
+          margin: const EdgeInsets.only(bottom: 16),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[200],
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 120,
+                        height: 16,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[200],
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        width: 80,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[200],
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Container(
+                            width: 50,
+                            height: 18,
+                            decoration: BoxDecoration(
+                              color: Colors.grey[200],
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            width: 60,
+                            height: 18,
+                            decoration: BoxDecoration(
+                              color: Colors.grey[200],
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[200],
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey[200]!),
+      ),
+      child: Column(
+        children: [
+          Icon(
+            Icons.sentiment_dissatisfied_rounded,
+            size: 64,
+            color: Colors.grey[400],
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'Nenhuma Matriz Disponível',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF37474F),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Não foram encontradas fêmeas da espécie "${widget.especie}" registradas no rebanho para cruzamento.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey[600],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorState() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.red[50],
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.red[100]!),
+      ),
+      child: Column(
+        children: [
+          Icon(Icons.error_outline_rounded, size: 48, color: Colors.red[700]),
+          const SizedBox(height: 16),
+          Text(
+            'Falha na Simulação',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Colors.red[900],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _errorMessage ?? 'Erro inesperado ao simular acasalamento.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 14, color: Colors.red[700]),
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: _buscarMelhoresMatrizes,
+            icon: const Icon(Icons.refresh_rounded),
+            label: const Text('Tentar Novamente'),
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.red[700],
+            ),
+          ),
+        ],
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    // Limit to exactly 5 cows as requested
+    final List<dynamic> top5Candidatas = _candidatas.take(5).toList();
+
     return Scaffold(
       appBar: AppBar(
-        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.white),
         backgroundColor: const Color(0xFF2E7D32),
+        elevation: 0,
         title: const Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Simulador de Viabilidade',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+              'Simulador de Acasalamento',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white),
             ),
             Text(
-              'Análise com Inteligência Artificial',
+              'Previsão de sucesso reprodutivo e acasalamento',
               style: TextStyle(fontSize: 12, color: Colors.white70),
             ),
           ],
         ),
       ),
-      body: Stack(
-        children: [
-          Form(
-            key: _formKey,
-            child: ListView(
-              padding: const EdgeInsets.all(20),
+      backgroundColor: Colors.grey[50],
+      body: RefreshIndicator(
+        onRefresh: _buscarMelhoresMatrizes,
+        color: const Color(0xFF2E7D32),
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            _buildBreederSummaryCard(),
+            const SizedBox(height: 16),
+            _buildSeasonSelector(),
+            const SizedBox(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _buildCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildSectionTitle('Dados do Animal'),
-                      const SizedBox(height: 16),
-                      _buildDropdown(
-                        label: 'Espécie',
-                        value: _especieSelecionada,
-                        items: ['Bovino', 'Ovino', 'Caprino'],
-                        onChanged: (value) => setState(() => _especieSelecionada = value!),
-                      ),
-                      const SizedBox(height: 20),
-                      _buildTextField(
-                        controller: _idadeController,
-                        label: 'Idade (meses)',
-                        keyboardType: TextInputType.number,
-                        validator: (value) {
-                          if (value == null || value.isEmpty) return 'Campo obrigatório';
-                          if (int.tryParse(value) == null) return 'Digite um número válido';
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 24),
-                      Text(
-                        'Escore de Condição Corporal (ECC)',
-                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[700]),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Text('1.0', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                          Expanded(
-                            child: Slider(
-                              value: _ecc,
-                              min: 1.0,
-                              max: 5.0,
-                              divisions: 40,
-                              label: _ecc.toStringAsFixed(1),
-                              onChanged: (value) => setState(() => _ecc = value),
-                            ),
-                          ),
-                          Text('5.0', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                        ],
-                      ),
-                      Center(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF2E7D32).withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            'ECC: ${_ecc.toStringAsFixed(1)}',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF2E7D32),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      _buildDropdown(
-                        label: 'Tentativas Prévias de Inseminação',
-                        value: _tentativasPrevias.toString(),
-                        items: ['0', '1', '2', '3'],
-                        onChanged: (value) => setState(() => 
-                          _tentativasPrevias = int.parse(value!)),
-                      ),
-                      const SizedBox(height: 20),
-                      _buildTextField(
-                        controller: _diasPosParto,
-                        label: 'Dias Pós-Parto',
-                        keyboardType: TextInputType.number,
-                        validator: (value) {
-                          if (value == null || value.isEmpty) return 'Campo obrigatório';
-                          if (int.tryParse(value) == null) return 'Digite um número válido';
-                          return null;
-                        },
-                      ),
-                    ],
+                const Text(
+                  'Top-5 Melhores Matrizes',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF263238),
                   ),
                 ),
-                const SizedBox(height: 16),
-                _buildCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildSectionTitle('Dados do Sêmen'),
-                      const SizedBox(height: 16),
-                      _buildTextField(
-                        controller: _indiceGeneticoController,
-                        label: 'Índice Genético (0 a 100)',
-                        keyboardType: TextInputType.number,
-                        validator: (value) {
-                          if (value == null || value.isEmpty) return 'Campo obrigatório';
-                          final numero = int.tryParse(value);
-                          if (numero == null || numero < 0 || numero > 100) return 'Digite um valor entre 0 e 100';
-                          return null;
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                _buildCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildSectionTitle('Condições Ambientais'),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Estação',
-                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[700]),
-                      ),
-                      const SizedBox(height: 12),
-                      SegmentedButton<String>(
-                        segments: const [
-                          ButtonSegment(
-                            value: 'Seca',
-                            label: Text('Seca'),
-                            icon: Icon(Icons.wb_sunny_outlined),
-                          ),
-                          ButtonSegment(
-                            value: 'Chuva',
-                            label: Text('Chuva'),
-                            icon: Icon(Icons.water_drop_outlined),
-                          ),
-                        ],
-                        selected: {_estacao},
-                        onSelectionChanged: (Set<String> newSelection) {
-                          setState(() => _estacao = newSelection.first);
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 32),
-                SizedBox(
-                  height: 56,
-                  child: FilledButton.icon(
-                    onPressed: _isLoading ? null : _analisarViabilidade,
-                    icon: const Icon(Icons.auto_awesome, size: 24),
-                    label: const Text(
-                      'Analisar Viabilidade com IA',
-                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                if (!_isLoading && _errorMessage == null && top5Candidatas.isNotEmpty)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2E7D32).withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF2E7D32),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
+                    child: Text(
+                      'Recomendado',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: const Color(0xFF2E7D32),
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 32),
               ],
             ),
-          ),
-          if (_isLoading)
-            Container(
-              color: Colors.black45,
-              child: const Center(
-                child: Card(
-                  child: Padding(
-                    padding: EdgeInsets.all(32),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        CircularProgressIndicator(),
-                        SizedBox(height: 20),
-                        Text(
-                          'Analisando dados com IA...',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+            const SizedBox(height: 12),
+            if (_isLoading)
+              _buildSkeletonLoader()
+            else if (_errorMessage != null)
+              _buildErrorState()
+            else if (top5Candidatas.isEmpty)
+              _buildEmptyState()
+            else
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: top5Candidatas.length,
+                itemBuilder: (context, index) {
+                  final candidata = top5Candidatas[index] as Map<String, dynamic>;
+                  return _buildCowCard(candidata, index);
+                },
               ),
-            ),
-        ],
+            const SizedBox(height: 32),
+          ],
+        ),
       ),
-    );
-  }
-
-  Widget _buildCard({required Widget child}) {
-    return Card(
-      elevation: 2,
-      shadowColor: Colors.black26,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(padding: const EdgeInsets.all(20), child: child),
-    );
-  }
-
-  Widget _buildSectionTitle(String title) {
-    return Row(
-      children: [
-        Container(
-          width: 4,
-          height: 20,
-          decoration: BoxDecoration(
-            color: const Color(0xFF2E7D32),
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Text(
-          title,
-          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1B5E20)),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDropdown({
-    required String label,
-    required String value,
-    required List<String> items,
-    required Function(String?) onChanged,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[700])),
-        const SizedBox(height: 8),
-        DropdownButtonFormField<String>(
-          value: value,
-          decoration: InputDecoration(
-            filled: true,
-            fillColor: Colors.grey[50],
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey[300]!)),
-            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey[300]!)),
-            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF2E7D32), width: 2)),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-          ),
-          items: items.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList(),
-          onChanged: onChanged,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildTextField({
-    required TextEditingController controller,
-    required String label,
-    TextInputType? keyboardType,
-    String? Function(String?)? validator,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[700])),
-        const SizedBox(height: 8),
-        TextFormField(
-          controller: controller,
-          keyboardType: keyboardType,
-          validator: validator,
-          style: const TextStyle(fontSize: 16),
-          decoration: InputDecoration(
-            filled: true,
-            fillColor: Colors.grey[50],
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey[300]!)),
-            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey[300]!)),
-            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF2E7D32), width: 2)),
-            errorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Colors.red, width: 1)),
-            focusedErrorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Colors.red, width: 2)),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-          ),
-        ),
-      ],
     );
   }
 }
